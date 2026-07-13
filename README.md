@@ -5,10 +5,7 @@ A CLI tool that inspects a JWT for common real-world misconfigurations —
 header injection, missing expiration, PII embedded in the payload, and
 more. Built to be genuinely useful during a pentest engagement or CI
 pipeline, not just a portfolio exercise — every check maps to a real,
-documented vulnerability class (see the CVE references in
-[`scanner/checks.py`](./scanner/checks.py)).
-
-## Why this is a real tool, not a toy
+documented vulnerability class.
 
 JWTs are base64url-encoded, **not encrypted** — anyone holding a token can
 read its header and payload without any key. That fact underlies half of
@@ -17,8 +14,7 @@ issues, because most issues are visible from the token's structure alone.
 The one thing that DOES need effort — confirming a weak secret was
 actually used to sign the token — is handled by `--bruteforce`, which
 tries the signature against a wordlist of known-weak secrets and
-cryptographically confirms a match (not a guess: it recomputes the HMAC
-and does a constant-time comparison against the real signature).
+cryptographically confirms a match.
 
 ## Setup
 
@@ -28,10 +24,9 @@ cd jwt-security-scanner
 pip install -r requirements.txt   # only needed for tests/ and fixture generation
 ```
 
-No dependencies are required to run the scanner itself — `scanner/cli.py`
-uses only the Python standard library, so it works anywhere Python 3.8+ is
-available, which matters for a tool you might drop onto a pentest jump box
-that doesn't have internet access to `pip install` anything.
+No dependencies are required to run the scanner itself —
+`scanner/cli.py` uses only the Python standard library, so it works
+anywhere Python 3.8+ is available.
 
 ## Usage
 
@@ -52,8 +47,7 @@ python -m scanner.cli --file token.txt --bruteforce --wordlist custom_wordlist.t
 python -m scanner.cli --file token.txt --json
 ```
 
-Exit codes (designed for CI gating — e.g. fail a build if a token fixture
-in your test suite regresses to `alg=none`):
+Exit codes (designed for CI gating):
 - `0` — no HIGH or CRITICAL findings
 - `1` — at least one HIGH or CRITICAL finding
 - `2` — token could not be parsed
@@ -71,27 +65,6 @@ the payload, an unusually long-lived token, one with a path-traversal
 `kid` header, and one clean token that should trigger no HIGH/CRITICAL
 findings.
 
-## Example run
-
-```
-$ python -m scanner.cli --file fixtures/kid_path_traversal.jwt
-
-======================================================================
-JWT SECURITY SCAN REPORT
-======================================================================
-
-Header:  {"alg": "HS256", "typ": "JWT", "kid": "../../../../etc/passwd"}
-Payload: {"sub": "user321", "iat": 1234567890, "exp": 1234568190}
-
-Findings: 2
-
-[HIGH] Suspicious 'kid' header value (path traversal pattern)
-    kid='../../../../etc/passwd' contains path traversal characters...
-
-[INFO] Token uses HS256 (symmetric) — confirm the verifier doesn't ALSO accept RS256
-    ...
-```
-
 ## Running the tests
 
 ```bash
@@ -101,6 +74,33 @@ pytest tests/ -v
 24 tests covering every check function individually plus the brute-force
 matcher (including a negative test — confirming a strong secret does NOT
 false-positive).
+
+## Screenshots
+
+### Weak secret detection via brute force
+![Bruteforce weak secret](screenshots/bruteforce-weak-secret.png)
+`python -m scanner.cli --file fixtures/weak_secret.jwt --bruteforce` —
+the scanner cryptographically confirms the token was signed with a weak,
+guessable secret (`secret`) from the built-in wordlist. This isn't a
+guess — it recomputes the HMAC and does a constant-time comparison
+against the real signature.
+
+### alg=none forgery detection
+![alg=none detection](screenshots/alg-none-detection.png)
+`python -m scanner.cli --file fixtures/alg_none.jwt` — flags the classic
+`alg=none` bypass as CRITICAL, along with the missing-expiration finding.
+
+### Tested against a real external token
+![Real JWT test](screenshots/real-jwt-external-test.png)
+Scanned a live example token from jwt.io's debugger — confirms the
+scanner works correctly on a token it never generated itself, not just
+its own fixtures. Correctly flags the missing `exp` claim and gives an
+informational note about the HS256/RS256 confusion attack class.
+
+### Test suite
+![pytest passing](screenshots/pytest-passing.png)
+`pytest tests/ -v` — all 24 tests passing, covering every check function
+individually plus the brute-force matcher.
 
 ## What this scanner checks
 
@@ -119,7 +119,7 @@ false-positive).
 | HS256 usage (alg-confusion advisory) | INFO | RS256/HS256 confusion attacks |
 | Missing `iat` | LOW | Weakens lifetime/clock-skew enforcement |
 
-## Known limitations
+## Limitations
 
 - Signature cryptographic validity is only confirmed for HS256/384/512 via
   `--bruteforce` matching a wordlist entry — this tool does **not** attempt
@@ -127,12 +127,9 @@ false-positive).
   should instead use directly with a library like PyJWT if you have it).
 - The wordlist is intentionally small and illustrative. For real
   engagements, pair this with a much larger list (rockyou.txt-scale) and
-  expect brute force to take meaningfully longer — HMAC-SHA256 is fast per
-  guess, but scanning millions of candidates still takes real time; this
-  tool doesn't currently parallelize the brute-force loop.
+  expect brute force to take meaningfully longer.
 - Not a replacement for a real fuzzing/pentest toolkit like `jwt_tool` —
-  this is a focused, readable implementation of a subset of the same idea,
-  built to demonstrate the underlying security concepts clearly.
+  this is a focused, readable implementation of a subset of the same idea.
 
 ## License
 
